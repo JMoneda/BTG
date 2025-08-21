@@ -1,0 +1,1 @@
+﻿public record SuscribirseRequest(string FondoId, decimal? Monto);
