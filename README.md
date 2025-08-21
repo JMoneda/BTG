@@ -1,10 +1,24 @@
-# BTG API
+# BTG Fondos API
 
-API backend en **.NET 9** para gestionar suscripciones a fondos de inversión.  
-Arquitectura limpia por capas (**Domain / Application / Infrastructure / Api**), MongoDB como persistencia NoSQL, autenticación **JWT Bearer**, pruebas xUnit/Moq y documentación con Swagger.
+Plataforma de prueba técnica que permite a los clientes gestionar fondos de inversión sin necesidad de un asesor, construida en .NET 9 / Minimal APIs con una arquitectura limpia y desacoplada.
 
 >  Esta entrega cubre **Parte 1 – Fondos (80%)** del reto.
+--
+## Funcionalidades Implementadas
 
+Suscribirse a un fondo (apertura).
+
+Cancelar suscripción a un fondo activo.
+
+Historial de transacciones (aperturas y cancelaciones).
+
+Notificaciones por email/SMS (mockeadas en consola según preferencia del cliente).
+
+Autenticación y autorización con JWT + roles (admin, cliente).
+
+Persistencia en MongoDB con modelo NoSQL.
+
+Pruebas unitarias con xUnit + Moq.
 ---
 
 ##  Prerrequisitos
@@ -173,30 +187,74 @@ dotnet test
 
 ---
 
-## Arquitectura (resumen)
+## Arquitectura 
+
+Se utilizó Clean Architecture con las siguientes capas:
+
+BTG.Domain → Entidades del negocio (Cliente, Fondo, Transaccion).
+
+BTG.Application → Interfaces de repositorios, servicios de dominio y DTOs.
+
+BTG.Infrastructure → Implementaciones (MongoDB, JWT, notificaciones).
+
+BTG.Api → Endpoints minimalistas (Minimal APIs) y configuración.
+
+Esto asegura separación de responsabilidades, facilidad de pruebas y mantenibilidad.
 
 - **Domain**: Entidades (`Cliente`, `Fondo`, `Transaccion`, `FondoActivo`), Enums.
 - **Application**: Interfaces (`IClienteRepository`, `IFondoRepository`, `ITransaccionRepository`, `INotificacionService`, `IAuthService`, `ITokenProvider`), DTOs, Servicios (`FondoService`, `AuthService`), Excepciones.
 - **Infrastructure**: `MongoContext`, Repositorios Mongo, `ConsoleNotificacionService`, `TokenProvider` (JWT).
 - **Api**: Minimal APIs (`*.Endpoints.cs`), DI, Swagger, Middlewares.
 
-Diagrama (alto nivel, Mermaid):
+Diagramas de flujo:
+
+Suscribirse a fondo
+----------------
 
 ```mermaid
-flowchart LR
-  UI[Cliente / Swagger] --> API[BTG.Api (Minimal APIs)]
-  API --> SVC[Application.Services<br/>FondoService, AuthService]
-  SVC --> REPOC[IClienteRepository]
-  SVC --> REPOF[IFondoRepository]
-  SVC --> REPOT[ITransaccionRepository]
-  SVC --> NOTIF[INotificacionService]
-  SVC --> TOK[ITokenProvider]
+sequenceDiagram
+    participant U as Usuario<br/>(JWT=cliente)
+    participant API as /api/fondos/suscribirse
+    participant S as FondoService
+    participant R1 as ClienteRepo
+    participant R2 as FondoRepo
+    participant R3 as TxRepo
+    participant N as NotifSvc
 
-  REPOC -->|MongoDB.Driver| MONGO[(MongoDB)]
-  REPOF -->|MongoDB.Driver| MONGO
-  REPOT -->|MongoDB.Driver| MONGO
-
-  NOTIF --> LOG[Console/Email/SMS Providers]
+    U->>API: POST {fondoId,monto} + JWT
+    API->>S: SuscribirseAsync(clienteId, req)
+    S->>R1: GetByIdAsync(clienteId)
+    R1-->>S: Cliente
+    S->>R2: GetByIdAsync(fondoId)
+    R2-->>S: Fondo
+    S->>S: Validar mínimo/saldo/duplicado
+    S->>R1: UpdateAsync(cliente)
+    S->>R3: AddAsync(Transacción)
+    S->>N: EnviarSuscripcion(cliente,fondo,monto)
+    S-->>API: txId
+    API-->>U: 200 OK
 ```
 
+Cancelar suscripción
+------------------------
 
+```mermaid
+sequenceDiagram
+    participant U as Usuario<br/>(JWT=cliente)
+    participant API as /api/fondos/cancelar
+    participant S as FondoService
+    participant R1 as ClienteRepo
+    participant R3 as TxRepo
+    participant N as NotifSvc
+
+    U->>API: POST {fondoId} + JWT
+    API->>S: CancelarAsync(req)
+    S->>R1: GetByIdAsync(req.ClienteId)
+    R1-->>S: Cliente
+    S->>S: Buscar fondo activo y validar
+    S->>R1: UpdateAsync(Devolver saldo + remover activo)
+    S->>R3: AddAsync(Transacción CANCELACION)
+    S->>N: EnviarSuscripcion(cliente,fondo,-monto)
+    S-->>API: txId
+    API-->>U: 200 OK
+```
